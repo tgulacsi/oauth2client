@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/pkg/browser"
 	"github.com/pkg/errors"
@@ -99,7 +100,12 @@ func Authenticate(conf *oauth2.Config) (*oauth2.Token, error) {
 
 	go func() {
 		var code string
+		start := time.Now()
 		_, err := fmt.Scan(&code)
+		if err != nil && time.Since(start) < time.Second {
+			Log("msg", "read stdin", "error", err)
+			return
+		}
 		c <- maybeCode{Code: code, Err: err}
 	}()
 
