@@ -41,6 +41,7 @@ type authenticator struct {
 
 func (a *authenticator) Token() (*oauth2.Token, error) {
 	m := make(map[string]*oauth2.Token)
+	key := a.ClientID + ":" + strings.Join(a.Scopes, "\t")
 	var tok *oauth2.Token
 	if fh, err := os.Open(a.FileName); err == nil {
 		err = json.NewDecoder(fh).Decode(&m)
@@ -48,16 +49,17 @@ func (a *authenticator) Token() (*oauth2.Token, error) {
 		if err != nil {
 			Log("file", a.FileName, "error", err)
 		} else {
-			if tok = m[a.ClientID]; tok.Valid() {
+			if tok = m[key]; tok.Valid() {
 				return tok, nil
 			}
+			Log("msg", "Token is invalid", "token", tok)
 		}
 	}
 	tok, err := Authenticate(a.Config)
 	if err != nil {
 		return tok, err
 	}
-	m[a.ClientID] = tok
+	m[key] = tok
 	fh, err := os.OpenFile(a.FileName, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		Log("msg", "save token", "file", a.FileName, "error", err)
