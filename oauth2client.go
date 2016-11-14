@@ -27,16 +27,18 @@ var Log = func(keyvals ...interface{}) error { log.Println(keyvals...); return n
 var _ = oauth2.TokenSource((*authenticator)(nil))
 
 // NewTokenSource returns a new token source, saved in fileName.
-func NewTokenSource(conf *oauth2.Config, fileName string) oauth2.TokenSource {
-	return oauth2.ReuseTokenSource(
-		nil,
-		&authenticator{Config: conf, FileName: fileName},
-	)
+func NewTokenSource(conf *oauth2.Config, fileName string, tlsFiles ...string) oauth2.TokenSource {
+	a := authenticator{Config: conf, FileName: fileName}
+	if len(tlsFiles) == 2 && tlsFiles[0] != "" && tlsFiles[1] != "" {
+		a.TLSCertFile, a.TLSKeyFile = tlsFiles[0], tlsFiles[1]
+	}
+	return oauth2.ReuseTokenSource(nil, &a)
 }
 
 type authenticator struct {
 	*oauth2.Config
-	FileName string
+	FileName                string
+	TLSCertFile, TLSKeyFile string
 }
 
 func (a *authenticator) Token() (*oauth2.Token, error) {
@@ -55,7 +57,7 @@ func (a *authenticator) Token() (*oauth2.Token, error) {
 			Log("msg", "Token is invalid", "token", tok)
 		}
 	}
-	tok, err := Authenticate(a.Config)
+	tok, err := Authenticate(a.Config, a.TLSCertFile, a.TLSKeyFile)
 	if err != nil {
 		return tok, err
 	}
@@ -76,7 +78,7 @@ func (a *authenticator) Token() (*oauth2.Token, error) {
 }
 
 // Authenticatee returns an *oauth.Token for the given Config.
-func Authenticate(conf *oauth2.Config) (*oauth2.Token, error) {
+func Authenticate(conf *oauth2.Config, tlsFiles ...string) (*oauth2.Token, error) {
 	var b [32]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return nil, err
@@ -93,10 +95,16 @@ func Authenticate(conf *oauth2.Config) (*oauth2.Token, error) {
 	c := make(chan maybeCode, 1)
 	if conf.RedirectURL != "" {
 		go func() {
-			http.ListenAndServe(
-				strings.TrimPrefix(conf.RedirectURL, "http://"),
-				handleRedirect(c, state),
-			)
+			addr := conf.RedirectURL
+			if i := strings.Index(addr, "://"); i >= 0 {
+				addr = addr[i+3:]
+			}
+			hndl := handleRedirect(c, state)
+			if len(tlsFiles) == 2 && tlsFiles[0] != "" && tlsFiles[1] != "" {
+				http.ListenAndServeTLS(addr, tlsFiles[0], tlsFiles[1], hndl)
+			} else {
+				http.ListenAndServe(addr, hndl)
+			}
 		}()
 	}
 
