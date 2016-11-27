@@ -77,33 +77,63 @@ func (a *authenticator) Token() (*oauth2.Token, error) {
 	return tok, err
 }
 
-// Authenticatee returns an *oauth.Token for the given Config.
-func Authenticate(conf *oauth2.Config, tlsFiles ...string) (*oauth2.Token, error) {
+// NewAuthenticator returns the components for authenticating:
+//   1. redirect user to authCodeURL,
+//   2. the auth provider will call on conf.RedirectURL, handle it with callbackHandler,
+//   3. retrieve the token (or error) on tokenCh.
+func NewAuthenticator(conf *oauth2.Config) (
+	authCodeURL string, callbackHandler http.Handler, tokenCh chan MaybeCode, err error,
+) {
 	var b [32]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return nil, err
+		return "", nil, nil, err
 	}
 	state := base64.URLEncoding.EncodeToString(b[:])
+	c := make(chan maybeCode, 1)
 	// Redirect user to Google's consent page to ask for permission
 	// for the scopes specified above.
-	url := conf.AuthCodeURL(state, oauth2.AccessTypeOffline)
-	fmt.Printf("Visit the URL for the auth dialog:\n\n\t%v\n\n", url)
-	if err := browser.OpenURL(url); err != nil {
+	authCodeURL = conf.AuthCodeURL(state, oauth2.AccessTypeOffline)
+	if conf.RedirectURL == "" {
+		return authCodeURL, nil, nil, nil
+	}
+	tokenCh = make(chan MaybeToken)
+	callbackHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handleRedirect(c, state).ServeHTTP(w, r)
+		ce := <-c
+		if ce.Code == "" {
+			tokenCh <- MaybeToken{Err: err}
+			return
+		}
+		// Handle the exchange code to initiate a transport.
+		tok, err := conf.Exchange(oauth2.NoContext, ce.Code)
+		tokenCh <- MaybeToken{
+			Token: tok,
+			Err:   errors.Wrap(err, "Exchange code="+ce.Code),
+		}
+	})
+	return authCodeURL, callbackHandler, tokenCh, nil
+}
+
+// Authenticatee returns an *oauth.Token for the given Config.
+func Authenticate(conf *oauth2.Config, tlsFiles ...string) (*oauth2.Token, error) {
+	authCodeURL, callbackHandler, tokenCh, err := NewAuthenticator(conf, tlsFiles...)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("Visit the URL for the auth dialog:\n\n\t%v\n\n", authCodeURL)
+	if err := browser.OpenURL(authCodeURL); err != nil {
 		Log("msg", "OpenURL", "url", url, "error", err)
 	}
-
-	c := make(chan maybeCode, 1)
 	if conf.RedirectURL != "" {
 		go func() {
 			addr := conf.RedirectURL
 			if i := strings.Index(addr, "://"); i >= 0 {
 				addr = addr[i+3:]
 			}
-			hndl := handleRedirect(c, state)
 			if len(tlsFiles) == 2 && tlsFiles[0] != "" && tlsFiles[1] != "" {
-				http.ListenAndServeTLS(addr, tlsFiles[0], tlsFiles[1], hndl)
+				http.ListenAndServeTLS(addr, tlsFiles[0], tlsFiles[1], callbackHandler)
 			} else {
-				http.ListenAndServe(addr, hndl)
+				http.ListenAndServe(addr, callbackHandler)
 			}
 		}()
 	}
@@ -116,16 +146,17 @@ func Authenticate(conf *oauth2.Config, tlsFiles ...string) (*oauth2.Token, error
 			Log("msg", "read stdin", "error", err)
 			return
 		}
-		c <- maybeCode{Code: code, Err: err}
+		tok, err := conf.Exchange(oauth2.NoContext, code)
+		tokenCh <- MaybeToken{Token: tok, Err: err}
 	}()
 
-	ce := <-c
-	if ce.Code == "" {
-		log.Fatal(ce.Err)
-	}
-	// Handle the exchange code to initiate a transport.
-	tok, err := conf.Exchange(oauth2.NoContext, ce.Code)
-	return tok, errors.Wrap(err, "Exchange code="+ce.Code)
+	mt := <-tokenCh
+	return mt.Token, mt.Err
+}
+
+type MaybeToken struct {
+	Token *oauth2.Token
+	Err   error
 }
 
 type maybeCode struct {
