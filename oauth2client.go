@@ -82,7 +82,7 @@ func (a *authenticator) Token() (*oauth2.Token, error) {
 //   2. the auth provider will call on conf.RedirectURL, handle it with callbackHandler,
 //   3. retrieve the token (or error) on tokenCh.
 func NewAuthenticator(conf *oauth2.Config) (
-	authCodeURL string, callbackHandler http.Handler, tokenCh chan MaybeCode, err error,
+	authCodeURL string, callbackHandler http.Handler, tokenCh chan MaybeToken, err error,
 ) {
 	var b [32]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -116,13 +116,13 @@ func NewAuthenticator(conf *oauth2.Config) (
 
 // Authenticatee returns an *oauth.Token for the given Config.
 func Authenticate(conf *oauth2.Config, tlsFiles ...string) (*oauth2.Token, error) {
-	authCodeURL, callbackHandler, tokenCh, err := NewAuthenticator(conf, tlsFiles...)
+	authCodeURL, callbackHandler, tokenCh, err := NewAuthenticator(conf)
 	if err != nil {
 		return nil, err
 	}
 	fmt.Printf("Visit the URL for the auth dialog:\n\n\t%v\n\n", authCodeURL)
 	if err := browser.OpenURL(authCodeURL); err != nil {
-		Log("msg", "OpenURL", "url", url, "error", err)
+		Log("msg", "OpenURL", "url", authCodeURL, "error", err)
 	}
 	if conf.RedirectURL != "" {
 		go func() {
