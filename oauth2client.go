@@ -16,6 +16,7 @@
 package oauth2client
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -27,8 +28,8 @@ import (
 	"time"
 
 	"github.com/pkg/browser"
-	"github.com/pkg/errors"
 	"golang.org/x/oauth2"
+	errors "golang.org/x/xerrors"
 )
 
 // Azure AD v2 endpoint
@@ -120,16 +121,16 @@ func NewAuthenticator(conf *oauth2.Config) (
 			return
 		}
 		// Handle the exchange code to initiate a transport.
-		tok, err := conf.Exchange(oauth2.NoContext, ce.Code)
-		tokenCh <- MaybeToken{
-			Token: tok,
-			Err:   errors.Wrap(err, "Exchange code="+ce.Code),
+		tok, err := conf.Exchange(r.Context(), ce.Code)
+		if err != nil {
+			err = errors.Errorf("Exchange code=%s: %w", ce.Code, err)
 		}
+		tokenCh <- MaybeToken{Token: tok, Err: err}
 	})
 	return authCodeURL, callbackHandler, tokenCh, nil
 }
 
-// Authenticatee returns an *oauth.Token for the given Config.
+// Authenticate returns an *oauth.Token for the given Config.
 func Authenticate(conf *oauth2.Config, tlsFiles ...string) (*oauth2.Token, error) {
 	authCodeURL, callbackHandler, tokenCh, err := NewAuthenticator(conf)
 	if err != nil {
@@ -161,7 +162,9 @@ func Authenticate(conf *oauth2.Config, tlsFiles ...string) (*oauth2.Token, error
 			Log("msg", "read stdin", "error", err)
 			return
 		}
-		tok, err := conf.Exchange(oauth2.NoContext, code)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		tok, err := conf.Exchange(ctx, code)
 		tokenCh <- MaybeToken{Token: tok, Err: err}
 	}()
 
