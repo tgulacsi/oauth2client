@@ -1,4 +1,4 @@
-// Copyright 2016 Tamás Gulácsi
+// Copyright 2016, 2020 Tamás Gulácsi
 //
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,7 +29,6 @@ import (
 
 	"github.com/pkg/browser"
 	"golang.org/x/oauth2"
-	errors "golang.org/x/xerrors"
 )
 
 // Azure AD v2 endpoint
@@ -123,7 +122,7 @@ func NewAuthenticator(conf *oauth2.Config) (
 		// Handle the exchange code to initiate a transport.
 		tok, err := conf.Exchange(r.Context(), ce.Code)
 		if err != nil {
-			err = errors.Errorf("Exchange code=%s: %w", ce.Code, err)
+			err = fmt.Errorf("exchange code=%s: %w", ce.Code, err)
 		}
 		tokenCh <- MaybeToken{Token: tok, Err: err}
 	})
