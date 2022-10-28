@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -35,6 +36,14 @@ import (
 var AzureV2Endpoint = oauth2.Endpoint{
 	AuthURL:  "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
 	TokenURL: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+}
+
+func AzureV2TenantEndpoint(tenantID string) oauth2.Endpoint {
+	s := url.PathEscape(tenantID)
+	return oauth2.Endpoint{
+		TokenURL: "https://login.microsoftonline.com/" + s + "/oauth2/v2.0/token",
+		AuthURL:  "https://login.microsoftonline.com/" + s + "/oauth2/v2.0/authorize",
+	}
 }
 
 var Log = func(keyvals ...interface{}) error { log.Println(keyvals...); return nil }
